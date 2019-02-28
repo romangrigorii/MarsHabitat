@@ -27,6 +27,10 @@ E = 1.125;
 F = 1.873;
 G = 1.3925;
 
+% dimensions of 2R end-effector:
+H = 1.35;
+I = 1.65;
+
 base_x = 0.377;
 base_y = 0;
 base_z = 0.780;
