@@ -27,7 +27,7 @@ E = 1.125;
 F = 1.873;
 G = 1.3925;
 
-% dimensions of 2R end-effector:
+% dimensions of prismatic end-effector:
 H = 1.35;
 I = 1.65;
 
@@ -56,6 +56,8 @@ end
 
 Slist = [omega, v]; % screw axes in space frame
 
+% M{i} is the SE(3) pose of the ith joint in the robot's home position
+
 M{1} = [1,0,0,0; 0,1,0,0; 0,0,1,0; 0,0,0,1];
 M{2} = [0,1,0,base_x; 0,0,1,base_y; 1,0,0,base_z; 0,0,0,1];
 M{3} = [0,1,0,base_x; 0,0,1,base_y; 1,0,0,base_z + E; 0,0,0,1];
@@ -70,8 +72,11 @@ M{6} = [0, 0, 1, base_x + G + A;
 joints_home = [0;0;0;0;0;0];
 joints_max = deg2rad([170;85;70;300;130;360]);
 joints_min = deg2rad([-170;-65;-180;-300;-130;-360]);
-thetalist = deg2rad([0;60;-30;0;0;0]);
+joints_max_ext = deg2rad([0;60;-30;0;0;0]);
+joints_min_ext = deg2rad([0;0;-30;0;0;0]);
+thetalist = joints_min_ext;
 
+% Calculate FK of each joint given thetalist
 for i = 1:6
    T{i} = FKinSpace(M{i}, Slist(1:i,:)', thetalist(1:i));
 end
