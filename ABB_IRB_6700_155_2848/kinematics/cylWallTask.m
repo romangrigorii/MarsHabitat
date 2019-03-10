@@ -7,8 +7,11 @@
 %
 % Notes:
 %   1 - all linear dimensions are in meters except where otherwise noted.
-%   2 - requires kinematics library from Modern Robotics by Lynch & Park:
+% Dependencies:
+%   1 - kinematics library from Modern Robotics by Lynch & Park:
 %       https://github.com/NxRLab/ModernRobotics/tree/master/packages/MATLAB
+%   2 - stlread.m (imports STL file as a struct with fields "faces" and
+%   "vertices" - super handy
 %
 % Author:
 %   Dan Lynch
@@ -18,20 +21,40 @@
 
 %% main function
 function cylWallTask
-    clear;
+    clear all;
     close all;
     clc;
     
     % add Modern Robotics library to path:
     addpath('/home/daniel/ModernRobotics/packages/MATLAB/mr');
     
+    % add stlread.m to path:
+    addpath([pwd,'/../../STL_and_related/STLRead']);
+    
     % declare presistent structs:
     persistent perim slab robot workpiece
     
+    % initialize the workspace and the robot, and visualize them both:
     [perim,slab,robot,workpiece] = init_workspace(perim,slab,robot,workpiece);
     robot = init_robot(robot);
+    workpiece = gen_pts(workpiece);
     visualize_workspace(perim,slab,robot,workpiece);
     
+end
+
+%% Generate a point cloud approximation of the workpiece:
+function [workpiece] = gen_pts(workpiece)
+    % based on example 'stldemo.m' that comes with 'stlread.m' from MATLAB
+    % FileExchange - author is Eric Johnson
+    workpiece.fv = stlread('cylwall.stl');
+    
+    % TODO: sort imported vertices vertically, then radially, then by
+    % rotation about the center vertical axis. They're jumbled by default.
+    
+    workpiece.points.x = workpiece.fv.vertices(:,1) + workpiece.frame.x;
+    workpiece.points.y = workpiece.fv.vertices(:,2) + workpiece.frame.y;
+    workpiece.points.z = workpiece.fv.vertices(:,3) + workpiece.frame.z;
+
 end
 
 %% Initialize the robot
@@ -56,9 +79,9 @@ G = 1.3925;
 H = 1.35;
 I = 1.65;
 
-base_x = 0.377;
-base_y = 0;
-base_z = 0.780;
+shoulder_x = 0.377;
+shoulder_y = 0;
+shoulder_z = 0.780;
 
 elbow_offset = 0.2;
 
@@ -73,11 +96,11 @@ omega = [0,0,1;
 
 % points used to calculate the linear triplet of each screw axis 6-vector:
 q = [0,0,0;
-     base_x,base_y,base_z;
-     base_x,base_y,base_z + E;
-     base_x,base_y,base_z + E + elbow_offset;
-     base_x + G,base_y,base_z + E + elbow_offset;
-     base_x,base_y,base_z + E + elbow_offset];
+     shoulder_x,shoulder_y,shoulder_z;
+     shoulder_x,shoulder_y,shoulder_z + E;
+     shoulder_x,shoulder_y,shoulder_z + E + elbow_offset;
+     shoulder_x + G,shoulder_y,shoulder_z + E + elbow_offset;
+     shoulder_x,shoulder_y,shoulder_z + E + elbow_offset];
  
 % use the points "q" and triplets "omega" to find the linear triple of each
 % screw axis:
@@ -91,22 +114,17 @@ Slist = [omega, v];
 % M{i} is the SE(3) pose of the ith joint in the robot's home position
 
 M{1} = [1,0,0,0; 0,1,0,0; 0,0,1,0; 0,0,0,1];
-M{2} = [0,1,0,base_x; 0,0,1,base_y; 1,0,0,base_z; 0,0,0,1];
-M{3} = [0,1,0,base_x; 0,0,1,base_y; 1,0,0,base_z + E; 0,0,0,1];
-M{4} = [0,0,1,base_x; 0,1,0,base_y; -1,0,0,base_z + E + elbow_offset; ...
+M{2} = [0,1,0,shoulder_x; 0,0,1,shoulder_y; 1,0,0,shoulder_z; 0,0,0,1];
+M{3} = [0,1,0,shoulder_x; 0,0,1,shoulder_y; 1,0,0,shoulder_z + E; 0,0,0,1];
+M{4} = [0,0,1,shoulder_x; 0,1,0,shoulder_y; -1,0,0,shoulder_z + E + elbow_offset; ...
     0,0,0,1];
-M{5} = [1,0,0,base_x + G; 0,0,1,base_y; 0,-1,0,base_z + E + elbow_offset; 0,0,0,1];
-M{6} = [0, 0, 1, base_x + G + A;
-      0, 1, 0, base_y;
-     -1,0, 0, base_z + E + elbow_offset;
+M{5} = [1,0,0,shoulder_x + G; 0,0,1,shoulder_y; 0,-1,0,shoulder_z + E + elbow_offset; 0,0,0,1];
+M{6} = [0, 0, 1, shoulder_x + G + A;
+      0, 1, 0, shoulder_y;
+     -1,0, 0, shoulder_z + E + elbow_offset;
       0, 0, 0, 1];
-  
-joints_home = [0;0;0;0;0;0];
-joints_max = deg2rad([170;85;70;300;130;360]);
-joints_min = deg2rad([-170;-65;-180;-300;-130;-360]);
-joints_max_ext = deg2rad([0;60;-30;0;0;0]);
-joints_min_ext = deg2rad([0;0;-30;0;0;0]);
-thetalist = joints_max_ext;
+
+thetalist = robot.angles.joints_max_ext;
 
 % Calculate FK of each joint given thetalist
 for i = 1:robot.nJoints
@@ -203,14 +221,23 @@ robot.reach.max_reach_circle.x = robot.frames.base.x + ...
 robot.reach.max_reach_circle.y = robot.frames.base.y + ...
     robot.reach.max_reach*sin(linspace(0,2*pi,101));
 
+% default "thetalist"s for robot
+robot.angles.joints_home = [0;0;0;0;0;0];
+robot.angles.joints_max = deg2rad([170;85;70;300;130;360]);
+robot.angles.joints_min = deg2rad([-170;-65;-180;-300;-130;-360]);
+robot.angles.joints_max_ext = deg2rad([0;60;-30;0;0;0]);
+robot.angles.joints_min_ext = deg2rad([0;0;-30;0;0;0]);
+
 % workpiece (3D printed cylindrical wall) dimensions
 workpiece.offset.x = 0;
 workpiece.offset.y = 1;
 workpiece.radii.outer_radius = 1.1;
+workpiece.radii.inner_radius = 1.0;
 workpiece.frame.x = robot.frames.base.x + workpiece.radii.outer_radius + workpiece.offset.x;
 workpiece.frame.y = robot.frames.base.y + workpiece.radii.outer_radius + workpiece.offset.y;
-workpiece.points.x = workpiece.frame.x + workpiece.radii.outer_radius*sin(linspace(0,2*pi,101));
-workpiece.points.y = workpiece.frame.y + workpiece.radii.outer_radius*cos(linspace(0,2*pi,101));
+workpiece.frame.z = 0;
+workpiece.outline.x = workpiece.frame.x + workpiece.radii.outer_radius*sin(linspace(0,2*pi,101));
+workpiece.outline.y = workpiece.frame.y + workpiece.radii.outer_radius*cos(linspace(0,2*pi,101));
 
 end
 
@@ -226,17 +253,16 @@ hold on;
 plot3(horzcat(slab.x_coords,slab.Ax),horzcat(slab.y_coords,slab.Ay),...
     zeros(1,length(slab.x_coords)+1),'k-.');
 
+% plot workpiece:
+plot3(workpiece.frame.x,workpiece.frame.y,0,'b.','MarkerSize',20)
+plot3(workpiece.points.x,workpiece.points.y,workpiece.points.z,'b.:','MarkerSize',1)
+
 % plot robot base, max & min reach:
 plot3(robot.frames.base.x,robot.frames.base.y,0,'k.','MarkerSize',20);
 plot3(robot.reach.min_reach_circle.x,robot.reach.min_reach_circle.y,...
     zeros(1,length(robot.reach.min_reach_circle.x)),'k:')
 plot3(robot.reach.max_reach_circle.x,robot.reach.max_reach_circle.y,...
     zeros(1,length(robot.reach.max_reach_circle.x)),'k--')
-
-% plot workpiece:
-plot3(workpiece.frame.x,workpiece.frame.y,0,'b.','MarkerSize',20)
-plot3(workpiece.points.x,workpiece.points.y,...
-    zeros(1,length(workpiece.points.x)),'b-')
 
 % plot robot:
 cc = lines(6);
@@ -258,9 +284,10 @@ end
 axis([-1, perim.width_dim + 1, -1, perim.length_dim + 1, 0, perim.height_dim]);
 pbaspect([perim.width_dim, perim.width_dim, perim.height_dim]/perim.width_dim)
 
-legend('workspace boundary','slab','robot: base','robot: min reach',...
-    'robot: max reach','workpiece: center','workpiece: outer wall','Location','Best');
-view(60,30); % initialize viewing angle (azimuth, elevation)
+legend('workspace boundary','slab','workpiece: center',...
+    'workpiece: outer wall','robot: base','robot: min reach',...
+    'robot: max reach','Location','Best');
+view(80,30); % initialize viewing angle (azimuth, elevation)
 xlabel('x [m]')
 ylabel('y [m]')
 zlabel('z [m]')
