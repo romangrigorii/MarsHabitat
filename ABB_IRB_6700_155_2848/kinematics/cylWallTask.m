@@ -38,23 +38,75 @@ function cylWallTask
     % declare presistent structs:
     persistent perim slab robot workpiece
     
-    % initialize the workspace and the robot, and visualize them both:
+    % initialize the workspace and the robot:
     [perim,slab,robot,workpiece] = init_workspace(perim,slab,robot,workpiece);
     robot = init_robot(robot);
     workpiece = gen_pts(workpiece);
-    visualize_workspace(perim,slab,robot,workpiece);
     
+    taskspace_pose = [1,0,0,3.5;
+                      0,1,0,3.1;
+                      0,0,1,0.420;
+                      0,0,0,1];
+    taskspace_pose(1,4) = taskspace_pose(1,4) - robot.frames.base.x;
+    taskspace_pose(2,4) = taskspace_pose(2,4) - robot.frames.base.y;
+    taskspace_pose(3,4) = taskspace_pose(3,4) - robot.frames.base.z;
+    [thetalist,robot_pose,exitflag] = robot_IK(taskspace_pose,robot)
+    robot.thetalist = thetalist;
+    
+    % visualize everything:
+    visualize_workspace(perim,slab,robot,workpiece);
+end
+
+%% Compute forward kinematics for a set of joint positions:
+function [robot] = robot_FK(robot)
+    % Calculate FK of each joint, given robot.thetalist:
+    for i = 1:robot.nJoints
+       T{i} = FKinSpace(robot.M{i}, robot.Slist(1:i,:)', robot.thetalist(1:i));
+    end
+
+    % Calculate FK of end-effector, given thetalist:
+    T{robot.nJoints + 1} = FKinSpace(robot.M{robot.nJoints + 1}, robot.Slist', robot.thetalist);
+
+    % express robot frames in task space (rotate by 90 degrees about z-axis):
+    for i = 1:robot.nJoints + 1
+       T{i} = robot.T_robot2task*T{i};
+    end
+
+    for i = 1:robot.nJoints+1
+        robot.frames.joint{i}.x = robot.frames.base.x + T{i}(1,4);
+        robot.frames.joint{i}.y = robot.frames.base.y + T{i}(2,4);
+        robot.frames.joint{i}.z = robot.frames.base.z + T{i}(3,4);
+    end
+end
+
+%% Compute inverse kinematics for a pose in task-space:
+function [thetalist, robot_pose, exitflag] = robot_IK(taskspace_pose,robot)
+% "taskspace_pose" is the desired end-effector task-space configuration in SE(3)
+
+% express "taskspace_pose" in the robot's base frame, as "robotbase_pose"
+robot_pose = robot.T_task2robot*taskspace_pose;
+
+% dummy section:
+eomg = 0.01;
+ev = 0.001;
+thetalist0 = vertcat(deg2rad([30;60;-30;0;60;120]),-1.35);
+[thetalist, success] = IKinSpace(robot.Slist', robot.M{end}, robot_pose,...
+    thetalist0, eomg, ev);
+exitflag = success;
+
 end
 
 %% Generate a point cloud approximation of the workpiece:
 function [workpiece] = gen_pts(workpiece)
     % based on example 'stldemo.m' that comes with 'stlread.m' from MATLAB
     % FileExchange - author is Eric Johnson
-    workpiece.fv = stlread('cylwall.stl');
+    workpiece.fv = stlread('cylwall.stl'); % "fv" is a struct with fields "faces" and "Vertices"
+    
+    % sort points vertically
+    workpiece.fv.sorted_vertices = sortrows(workpiece.fv.vertices,3);
     
     % TODO: use a slicer, maybe
     % https://www.mathworks.com/matlabcentral/fileexchange/62113-slice_stl_create_path-triangles-slice_height
-    
     
     workpiece.points.x = workpiece.fv.vertices(:,1) + workpiece.frame.x;
     workpiece.points.y = workpiece.fv.vertices(:,2) + workpiece.frame.y;
@@ -118,55 +170,41 @@ end
 v(robot.nJoints,:) = [0,0,1];
 
 % finally, the screw axes in space frame:
-Slist = [omega, v];
+robot.Slist = [omega, v];
 
-% M{i} is the SE(3) pose of the ith joint in the robot's home position
+% M{i} is the SE(3) configuration of the ith joint in the robot's home position
 
-M{1} = [1,0,0,0; 0,1,0,0; 0,0,1,0; 0,0,0,1];
-M{2} = [0,1,0,shoulder_x; 0,0,1,shoulder_y; 1,0,0,shoulder_z; 0,0,0,1];
-M{3} = [0,1,0,shoulder_x; 0,0,1,shoulder_y; 1,0,0,shoulder_z + E; 0,0,0,1];
-M{4} = [0,0,1,shoulder_x; 0,1,0,shoulder_y; -1,0,0,shoulder_z + E + elbow_offset; ...
-    0,0,0,1];
-M{5} = [1,0,0,shoulder_x + G; 0,0,1,shoulder_y; 0,-1,0,shoulder_z + E + elbow_offset; 0,0,0,1];
-M{6} = [0, 0, 1, shoulder_x + G + A;
-      0, 1, 0, shoulder_y;
-     -1,0, 0, shoulder_z + E + elbow_offset;
-      0, 0, 0, 1];
-M{7} = [0,-1, 0, shoulder_x + G + A;
-        1, 0, 0, shoulder_y;
-        0, 0, 1, shoulder_z + E + elbow_offset + H;
-        0, 0, 0, 1];
-M{8} = [0,-1, 0, shoulder_x + G + A + I;
-        1, 0, 0, shoulder_y;
-        0, 0, 1, shoulder_z + E + elbow_offset + H + J;
-        0, 0, 0, 1];
+robot.M{1} = [1,0,0,0; 0,1,0,0; 0,0,1,0; 0,0,0,1];
+robot.M{2} = [0,1,0,shoulder_x;
+            0,0,1,shoulder_y;
+            1,0,0,shoulder_z;
+            0,0,0,1];
+robot.M{3} = [0,1,0,shoulder_x;
+            0,0,1,shoulder_y;
+            1,0,0,shoulder_z + E;
+            0,0,0,1];
+robot.M{4} = [0,0,1,shoulder_x;
+            0,1,0,shoulder_y;
+            -1,0,0,shoulder_z + E + elbow_offset; ...
+            0,0,0,1];
+robot.M{5} = [1,0,0,shoulder_x + G;
+            0,0,1,shoulder_y;
+            0,-1,0,shoulder_z + E + elbow_offset;
+            0,0,0,1];
+robot.M{6} = [0, 0, 1, shoulder_x + G + A;
+          0, 1, 0, shoulder_y;
+         -1,0, 0, shoulder_z + E + elbow_offset;
+          0, 0, 0, 1];
+robot.M{7} = [0,-1, 0, shoulder_x + G + A;
+            1, 0, 0, shoulder_y;
+            0, 0, 1, shoulder_z + E + elbow_offset + H;
+            0, 0, 0, 1];
 
-% thetalist = robot.angles.joints_max_ext;
-thetalist = vertcat(deg2rad([15;60;-30;0;60;105]),0);
-
-% Calculate FK of each joint, given thetalist:
-for i = 1:robot.nJoints
-   T{i} = FKinSpace(M{i}, Slist(1:i,:)', thetalist(1:i));
-end
-
-% Calculate FK of end-effector, given thetalist:
-T{robot.nJoints + 1} = FKinSpace(M{robot.nJoints + 1}, Slist', thetalist);
-
-% express robot frames in task space (rotate by 90 degrees about z-axis):
-T_robot2task = [cos(pi/2), -sin(pi/2), 0, 0;
-                sin(pi/2),  cos(pi/2), 0, 0;
-                0,          0,         1, 0;
-                0,          0,         0, 1];
-for i = 1:robot.nJoints + 1
-   T{i} = T_robot2task*T{i};
-end
-
-for i = 1:robot.nJoints+1
-    robot.frames.joint{i}.x = robot.frames.base.x + T{i}(1,4);
-    robot.frames.joint{i}.y = robot.frames.base.y + T{i}(2,4);
-    robot.frames.joint{i}.z = robot.frames.base.z + T{i}(3,4);
-end
-
+% home configuration of the end-effector:
+robot.M{8} = [0,-1, 0, shoulder_x + G + A + I;
+            1, 0, 0, shoulder_y;
+            0, 0, 1, shoulder_z + E + elbow_offset + H + J;
+            0, 0, 0, 1];
 end
 
 %% Workspace description in task-space frame
@@ -183,7 +221,7 @@ perim.frame.x = 0; % x-coordinate of the perimeter frame in the task-space frame
 perim.frame.y = 0; % y-coordinate of the perimeter frame in the task-space frame
 perim.width_dim = 4.7244;   % extends in the task-frame x-direction
 perim.length_dim = 4.4196;  % extends in the task-frame y-direction
-perim.height_dim = 4;       % extends in the task-frame z-direction (this vlaue is a guess)
+perim.height_dim = 2.5;       % extends in the task-frame z-direction (this vlaue is a guess)
 
 % perimeter corners (A-D, clockwise, A is coincident with task-space frame)
 perim.Ax = perim.frame.x + 0;
@@ -231,6 +269,15 @@ robot.frames.base.x = slab.frame.x + 0.5*slab.width_dim;
 robot.frames.base.y = slab.frame.y + 0.5*slab.length_dim;
 robot.frames.base.z = 0;
 
+% transformation from the robot base frame to the task-space frame:
+robot.T_robot2task = [cos(pi/2), -sin(pi/2), 0, 0;
+                sin(pi/2),  cos(pi/2), 0, 0;
+                0,          0,         1, 0;
+                0,          0,         0, 1];
+            
+% transformation from task-space frame to robot base frame:
+robot.T_task2robot = TransInv(robot.T_robot2task);
+
 robot.reach.min_reach = 0.994; % minimum reachable distance from robot base frame
 robot.reach.max_reach = 2.848; % maximum reachable distance from robot base frame
 robot.reach.min_reach_circle.x = robot.frames.base.x + ...
@@ -248,6 +295,7 @@ robot.angles.joints_max = deg2rad([170;85;70;300;130;360;0]);
 robot.angles.joints_min = deg2rad([-170;-65;-180;-300;-130;-360;0]);
 robot.angles.joints_max_ext = deg2rad([0;60;-30;0;60;0;-1.35]);
 robot.angles.joints_min_ext = deg2rad([0;0;-30;0;0;0;-1.35]);
+robot.thetalist = vertcat(deg2rad([30;60;-30;0;60;120]),-1.35);
 
 % workpiece (3D printed cylindrical wall) dimensions
 workpiece.offset.x = 0;
@@ -286,6 +334,8 @@ plot3(robot.reach.max_reach_circle.x,robot.reach.max_reach_circle.y,...
     zeros(1,length(robot.reach.max_reach_circle.x)),'k--')
 
 % plot robot:
+[robot] = robot_FK(robot);
+
 cc = lines(robot.nJoints + 1);
 joint_marker_size = 50;
 link_line_width = 10;
