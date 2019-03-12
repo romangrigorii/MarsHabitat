@@ -8,8 +8,10 @@ function out = simulate(T,j)
 axis([-5 5 -5 5 -.2 5])
 base_thickness = .2;
 base_rad = 1;
-link_thick = [.3,.15,.15,.1,.05];
+link_thick = [.25,.15,.15,.10,.075];
 cw = 4;
+show_edges = 1;
+grid on;
 %% functional
 [X,Y,Z] = cylinder(base_rad,100);
 X = X + T{1}(1,4);
@@ -20,23 +22,19 @@ a = surf(X,Y,-Z*base_thickness);
 a.EdgeAlpha = 0;
 a.FaceColor = [.5 .5 .5];
 a = fill(X(:),Y(:),[.5 .5 .5]);
-
 for i = 1:length(T)-1
-    [X,Y,Z] = cylinder(link_thick(i),cw);
-    for j = 1:cw+1
-        out = rotmat('z',pi/4)*[X(1,j);Y(1,j);zeros(size(Z(1,j)))];
-        out = T{i}(1:3,4)+out;      
-        X(1,j) = out(1);
-        Y(1,j) = out(2);
-        Z(1,j) = out(3);
-        out = rotmat('z',pi/4)*[X(2,j);Y(2,j);zeros(size(Z(2,j)))];
-        out = T{i+1}(1:3,4) + out;
-        X(2,j) = out(1);
-        Y(2,j) = out(2);
-        Z(2,j) = out(3);
-    end
-    a = surf(X,Y,Z);
-    a.FaceColor = [.7 .7 .8];
+      pp = [T{i}(1:3,4),T{i+1}(1:3,4)];
+      out = rect3D(pp,link_thick(i),cw);
+      X = squeeze(out(1,:,:));
+      Y = squeeze(out(2,:,:));
+      Z = squeeze(out(3,:,:));
+      a = surf(X,Y,Z);
+      a.EdgeAlpha = show_edges;
+      a.FaceColor = [.7 .7 .8];
+      a = fill3(X(1:cw,1).',Y(1:cw,1).',Z(1:cw,1).',ones(cw,1));
+      a.FaceColor = [.7 .7 .8];
+      a = fill3(X(1:cw,2).',Y(1:cw,2).',Z(1:cw,2).',ones(cw,1));      
+      a.FaceColor = [.7 .7 .8];
 end
 
 end
