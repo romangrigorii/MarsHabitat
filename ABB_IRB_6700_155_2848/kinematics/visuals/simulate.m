@@ -1,14 +1,13 @@
 % ***
 % Given a series of SE matrices T, where T{1} is location of the base, 
-% joint types j [...], simulate(...) creates a 3D representation of the robot
-% j: 'u' = universal, 'p' = prismatic, 'c' = cylindrical
+% link thivcknesses, link_t [...], simulate(...) creates a 3D representation 
+% of the robot
 
-function out = simulate(T,j)
+function out = simulate(T,link_t)
 %% define visual paramters here
 axis([-5 5 -5 5 -.2 5])
 base_thickness = .2;
 base_rad = 1;
-link_thick = [.25,.15,.15,.10,.075];
 cw = 4;
 show_edges = 1;
 grid on;
@@ -24,7 +23,7 @@ a.FaceColor = [.5 .5 .5];
 a = fill(X(:),Y(:),[.5 .5 .5]);
 for i = 1:length(T)-1
       pp = [T{i}(1:3,4),T{i+1}(1:3,4)];
-      out = rect3D(pp,link_thick(i),cw);
+      out = rect3D(pp,link_t(i),cw);
       X = squeeze(out(1,:,:));
       Y = squeeze(out(2,:,:));
       Z = squeeze(out(3,:,:));
